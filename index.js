@@ -105,7 +105,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     const source = audioCtx.createMediaStreamSource(stream);
                     const analyser = audioCtx.createAnalyser();
                     source.connect(analyser);
-                    analyser.connect(audioCtx.destination);
                     analyser.fftSize = NUM_SEGMENTS;
                     const dataArray = new Uint8Array(analyser.fftSize);
 
