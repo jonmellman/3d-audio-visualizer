@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function () {
         camera.position.z = 500;
         camera.lookAt(0, 0, 0)
         scene = new THREE.Scene();
+        window.scene = scene;
 
         addMeshesToScene(scene);
         addLightToScene(scene);
@@ -42,9 +43,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function addLightToScene(scene) {
-            light = new THREE.DirectionalLight(0xffffff);
-            light.position.set(0, 1, 1);
-            scene.add(light);
+            const pLight = new THREE.DirectionalLight(0xffffff);
+            pLight.position.set(0, 1, 1);
+            scene.add(pLight);
+
+            const hLight = new THREE.HemisphereLight();
+            scene.add(hLight);
         }
 
         function addMeshesToScene(scene) {
@@ -78,11 +82,11 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    function animate(render, getFrequencyBars) {
+    function animate(render, getByteTimeDomainData) {
         render();
         
         if (!options.paused) {
-            const positions = getFrequencyBars();
+            const positions = getByteTimeDomainData();
     
             console.assert(positions.length === meshes.length);
 
@@ -92,40 +96,50 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        window.requestAnimationFrame(animate.bind(null, render, getFrequencyBars));
+        window.requestAnimationFrame(animate.bind(null, render, getByteTimeDomainData));
     }
 
     function initAudio() {
-        return new Promise(function(resolve) {
+        if (navigator.mediaDevices.getUserMedia) {
+            return navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(connectAudioInputStream);
+        } else if (navigator.getUserMedia) {
+            return new Promise(function (resolve) {
+                navigator.getUserMedia({ audio: true },
+                    // Success callback
+                    function(stream) {
+                        resolve(connectAudioInputStream(stream));
+                    },
+
+                    // Error callback
+                    function (err) {
+                        console.log('The following gUM error occured: ' + err);
+                    }
+                );
+            });
+        } else {
+            throw new Error('Unsupported browser, could not get user media.');
+        }
+
+        function connectAudioInputStream(stream) {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            source.connect(analyser);
+            analyser.fftSize = NUM_SEGMENTS;
+            const dataArray = new Uint8Array(analyser.fftSize);
 
-            navigator.getUserMedia({ audio: true },
-                // Success callback
-                function (stream) {
-                    const source = audioCtx.createMediaStreamSource(stream);
-                    const analyser = audioCtx.createAnalyser();
-                    source.connect(analyser);
-                    analyser.fftSize = NUM_SEGMENTS;
-                    const dataArray = new Uint8Array(analyser.fftSize);
-
-                    resolve(function() {
-                        analyser.getByteTimeDomainData(dataArray);
-                        return dataArray;
-                    });
-                },
-
-                // Error callback
-                function (err) {
-                    console.log('The following gUM error occured: ' + err);
-                }
-            );
-        });
+            return function getByteTimeDomainData() {
+                analyser.getByteTimeDomainData(dataArray);
+                return dataArray;
+            }
+        }
     }
 
     initAudio()
-        .then(function(getFrequencyBars) {
+        .then(function(getByteTimeDomainData) {
             const { render, handleResize } = initScene();
-            animate(render, getFrequencyBars);
+            animate(render, getByteTimeDomainData);
      
             window.addEventListener('resize', function() {
                 handleResize(window.innerWidth, window.innerHeight);
